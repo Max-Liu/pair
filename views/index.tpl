@@ -15,6 +15,7 @@
     </style>
   </head>
   <body>
+    <p>join room address:{{.webHost}}/?chat={{.Room}}</p>
     <ul id="messages"></ul>
     <form action="">
       <input id="m" autocomplete="off" /><button>Send</button>

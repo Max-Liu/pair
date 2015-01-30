@@ -101,33 +101,37 @@ func (gameServer *GameServer) Start() {
 
 		so.Join(chatRoom)
 		so.BroadcastTo(chatRoom, "joined", "your friend "+so.Id()+"joined the room.")
-
 		peopleInRoom, ok := gameServer.gameRoom[chatRoom]
+
 		if ok {
+			gameServer.gameRoom[chatRoom] += 1
 			if peopleInRoom >= 2 {
 				so.Emit("info", "this room has fulled")
 				so.BroadcastTo(chatRoom, "info", fmt.Sprintf("%s(%s) has quit the room", so.Id(), so.Request().RemoteAddr))
-				//gameServer.log.Informational("%s(%s) left the room:%s", so.Id(), so.Request().RemoteAddr, chatRoom)
+				gameServer.log.Informational("%s(%s) left the room:%s", so.Id(), so.Request().RemoteAddr, chatRoom)
 				so.Leave(chatRoom)
 			} else {
-				gameServer.gameRoom[chatRoom] = peopleInRoom + 1
+				gameServer.log.Informational("%d people in room:%s", gameServer.gameRoom[chatRoom], chatRoom)
 			}
-
 		} else {
 			gameServer.gameRoom[chatRoom] = 1
+			gameServer.log.Informational("%d people in room:%s", gameServer.gameRoom[chatRoom], chatRoom)
 		}
 
 		so.On("chat message", func(msg string) {
-			//gameServer.log.Informational("%s(%s) said %s", so.Id(), so.Request().RemoteAddr, msg)
+			gameServer.log.Informational("%s(%s) said %s", so.Id(), so.Request().RemoteAddr, msg)
 			so.BroadcastTo(chatRoom, "chat message", msg)
 		})
 
 		so.On("disconnection", func() {
-			//gameServer.log.Informational("%s(%s) disconnected", so.Id(), so.Request().RemoteAddr)
-			gameServer.gameRoom[chatRoom] = peopleInRoom - 1
+			gameServer.gameRoom[chatRoom] -= 1
+			gameServer.log.Informational("%s(%s) disconnected", so.Id(), so.Request().RemoteAddr)
+			gameServer.log.Informational("%d people in room:%s", gameServer.gameRoom[chatRoom], chatRoom)
 			if gameServer.gameRoom[chatRoom] == 0 {
+				gameServer.log.Informational("detoried the room %s", chatRoom)
 				delete(gameServer.gameRoom, chatRoom)
 			}
+
 			so.BroadcastTo(chatRoom, "info", fmt.Sprintf("%s(%s) has quit the room", so.Id(), so.Request().RemoteAddr))
 		})
 	})
