@@ -6,6 +6,7 @@ import (
 	_ "pair/routers"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/astaxie/beego"
 	"github.com/googollee/go-socket.io"
@@ -41,16 +42,27 @@ func main() {
 			return func(msg string) {
 				gameServer.Log.Informational("%s(%s) confirmed.", so.Id(), so.Request().RemoteAddr)
 				confirm.Lock()
-				defer confirm.Unlock()
 				peopleSlice, ok := confirm.Map[roomName]
+				confirm.Unlock()
 				if ok {
 					if len(peopleSlice) == 2 {
 						if peopleSlice[0] != so.Id() {
 							peopleSlice[1] = so.Id()
 
-							gameServer.Log.Informational("%s(%s) Game(%s) started.", so.Id(), so.Request().RemoteAddr, roomName)
 							delete(confirm.Map, roomName)
+							gameServer.Log.Informational("%s(%s) Game(%s) started.", so.Id(), so.Request().RemoteAddr, roomName)
 							gameServer.BroadcastTo(roomName, "gamestart")
+							go func() {
+
+								<-time.Tick(20 * time.Second)
+								gameLogTrue.Lock()
+								defer gameLogTrue.Unlock()
+								jsonByte, _ := json.Marshal(gameLogTrue.Map[roomName])
+								gameServer.BroadcastTo(roomName, "gameover", string(jsonByte))
+								gameServer.Log.Informational("Game Over(%s)", roomName)
+								gameLogTrue.Map[roomName] = make([]string, 0)
+
+							}()
 						}
 					}
 					if len(peopleSlice) == 1 {
@@ -61,9 +73,11 @@ func main() {
 					}
 
 				} else {
+					confirm.Lock()
 					gameServer.Log.Informational("creating room")
 					confirm.Map[roomName] = make([]string, 2)
 					confirm.Map[roomName][0] = so.Id()
+					confirm.Unlock()
 				}
 			}
 		}
@@ -101,19 +115,19 @@ func main() {
 				so.BroadcastTo(roomName, "penda")
 			}
 		}
-		gameOverFunc := func(so socketio.Socket, roomName string) func(msg string) {
-			return func(msg string) {
-				gameLogTrue.Lock()
-				defer gameLogTrue.Unlock()
+		//gameOverFunc := func(so socketio.Socket, roomName string) func(msg string) {
+		//return func(msg string) {
+		//gameLogTrue.Lock()
+		//defer gameLogTrue.Unlock()
 
-				jsonByte, _ := json.Marshal(gameLogTrue.Map[roomName])
-				gameServer.BroadcastTo(roomName, "gameover", string(jsonByte))
-				gameLogTrue.Map[roomName] = make([]string, 0)
+		//jsonByte, _ := json.Marshal(gameLogTrue.Map[roomName])
+		//gameServer.BroadcastTo(roomName, "gameover", string(jsonByte))
+		//gameLogTrue.Map[roomName] = make([]string, 0)
 
-			}
-		}
+		//}
+		//}
 
-		gameServer.RegisterEvent("gameover", gameOverFunc)
+		//gameServer.RegisterEvent("gameover", gameOverFunc)
 		gameServer.RegisterEvent("chatmsg", chatFunc)
 		gameServer.RegisterEvent("confirm", confirmFunc)
 		gameServer.RegisterEvent("asend", aSendFunc)
