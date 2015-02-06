@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/astaxie/beego/context"
 	"github.com/astaxie/beego/logs"
@@ -13,7 +14,10 @@ import (
 type GameServer struct {
 	*socketio.Server
 	Log      *logs.BeeLogger
-	gameRoom map[string]int
+	gameRoom struct {
+		Map map[string]int
+		sync.Mutex
+	}
 	baseConfig
 	event map[string]func(so socketio.Socket, roomName string) func(msg string)
 }
@@ -32,7 +36,7 @@ func NewGameServer() *GameServer {
 	gameServer.Log = logs.NewLogger(10000)
 	gameServer.Log.SetLevel(log.Llongfile)
 	gameServer.Log.SetLogger("console", "")
-	gameServer.gameRoom = make(map[string]int)
+	gameServer.gameRoom.Map = make(map[string]int)
 	gameAdaptor := new(GameAdaptor)
 	gameAdaptor.broadcast = make(map[string]map[string]socketio.Socket)
 	gameServer.SetAdaptor(gameAdaptor)
@@ -43,20 +47,23 @@ func NewGameServer() *GameServer {
 
 func (gameServer *GameServer) checkPeopleNumberInRoom(roomName string, so socketio.Socket) {
 
-	peopleInRoom, ok := gameServer.gameRoom[roomName]
+	gameServer.gameRoom.Lock()
+	defer gameServer.gameRoom.Unlock()
+	peopleInRoom, ok := gameServer.gameRoom.Map[roomName]
 	if ok {
-		gameServer.gameRoom[roomName] += 1
+		gameServer.gameRoom.Map[roomName] += 1
 		if peopleInRoom >= gameServer.RoomMaxNumber {
 			so.Emit("info", "this room has fulled")
 			so.BroadcastTo(roomName, "info", fmt.Sprintf("%s(%s) has quit the room", so.Id(), so.Request().RemoteAddr))
 			gameServer.Log.Informational("%s(%s) left the room:%s", so.Id(), so.Request().RemoteAddr, roomName)
 			so.Leave(roomName)
 		} else {
-			gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom[roomName], roomName)
+			gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom.Map[roomName], roomName)
+			gameServer.BroadcastTo(roomName, "ready", "showready")
 		}
 	} else {
-		gameServer.gameRoom[roomName] = 1
-		gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom[roomName], roomName)
+		gameServer.gameRoom.Map[roomName] = 1
+		gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom.Map[roomName], roomName)
 	}
 }
 
@@ -67,15 +74,18 @@ func (gameServer *GameServer) handleEvent() func(socketio.Socket) {
 		gameServer.Log.Informational("%s(%s) joined the room:%s", so.Id(), so.Request().RemoteAddr, roomName)
 		so.Join(roomName)
 		so.BroadcastTo(roomName, "joined", "your friend "+so.Id()+"joined the room.")
+
 		gameServer.checkPeopleNumberInRoom(roomName, so)
 
 		so.On("disconnection", func() {
-			gameServer.gameRoom[roomName] -= 1
+			gameServer.gameRoom.Lock()
+			defer gameServer.gameRoom.Unlock()
+			gameServer.gameRoom.Map[roomName] -= 1
 			gameServer.Log.Informational("%s(%s) disconnected", so.Id(), so.Request().RemoteAddr)
-			gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom[roomName], roomName)
-			if gameServer.gameRoom[roomName] == 0 {
+			gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom.Map[roomName], roomName)
+			if gameServer.gameRoom.Map[roomName] == 0 {
 				gameServer.Log.Informational("detoried the room %s", roomName)
-				delete(gameServer.gameRoom, roomName)
+				delete(gameServer.gameRoom.Map, roomName)
 			}
 			so.BroadcastTo(roomName, "info", fmt.Sprintf("%s(%s) has quit the room", so.Id(), so.Request().RemoteAddr))
 		})

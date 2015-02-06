@@ -35,28 +35,73 @@
     </script>
     <script>
       var socket = io("{{.gameHost}}/?chat={{.Room}}");
+      var counter =0
 
       $('form').submit(function(){
-        socket.emit('chat message', $('#m').val());
-        //$('#messages').append($('<li>').text($('#m').val()));
+        input = $('#m').val()
+        if(input =="0"){
+            console.log("client confirmed")
+            socket.emit('confirm');
+        }
+
+
+        if(input == "1"){
+            console.log("client:A selected,pending B")
+            socket.emit('asend');
+        }
+        if(input =="2"){
+            console.log("client:B selected,false,pending A")
+            socket.emit('bsend',counter+",0");
+            counter++
+        }
+        if(input =="3"){
+            console.log("client:B selected,true,pending A")
+            socket.emit('bsend',counter+",1");
+            counter++
+        }
+
+        if(input =="gameover"){
+            counter = 0
+            socket.emit('gameover')
+        }
+
+        //console.log(msg)
+        //socket.emit('chatmsg', msg);
+
         $('#m').val('');
         return false;
       });
 
-      socket.on('chat message', function(msg){
-        $('#messages').append($('<li>').text(msg));
+
+      socket.on('penda', function(msg){
+        console.log("pending a")
       });
 
-      socket.on('connect', function(msg){
+      socket.on('gameover', function(msg){
+        counter = 0
+        console.log("client:recived gameover Event from Server:"+msg)
+        console.log("game over")
       });
+      socket.on('chatmsg', function(msg){
+        console.log(msg)
+      });
+
+      socket.on('ready', function(msg){
+        console.log(msg)
+      });
+
+      socket.on('gamestart', function(msg){
+        console.log("clent:recived Event from Server:Game start")
+      });
+
 
       socket.on('joined', function(msg){
-        $('#messages').append($('<li>').text(msg));
+        console.log(msg)
         $('#qrcodeCanvas').remove()
       });
 
       socket.on('info', function(msg){
-        $('#messages').append($('<li>').text(msg));
+        console.log(msg)
       });
 
         if(getUrlParam('chat')){
