@@ -1,6 +1,7 @@
 package game
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,11 +16,16 @@ type GameServer struct {
 	*socketio.Server
 	Log      *logs.BeeLogger
 	gameRoom struct {
-		Map map[string]int
+		Map map[string]map[string]*UserInfo
 		sync.Mutex
 	}
 	baseConfig
 	event map[string]func(so socketio.Socket, roomName string) func(msg string)
+}
+
+type UserInfo struct {
+	UserHead string
+	Nick     string
 }
 
 type baseConfig struct {
@@ -36,7 +42,7 @@ func NewGameServer() *GameServer {
 	gameServer.Log = logs.NewLogger(10000)
 	gameServer.Log.SetLevel(log.Llongfile)
 	gameServer.Log.SetLogger("console", "")
-	gameServer.gameRoom.Map = make(map[string]int)
+	gameServer.gameRoom.Map = make(map[string]map[string]*UserInfo)
 	gameAdaptor := new(GameAdaptor)
 	gameAdaptor.broadcast = make(map[string]map[string]socketio.Socket)
 	gameServer.SetAdaptor(gameAdaptor)
@@ -49,21 +55,38 @@ func (gameServer *GameServer) checkPeopleNumberInRoom(roomName string, so socket
 
 	gameServer.gameRoom.Lock()
 	defer gameServer.gameRoom.Unlock()
-	peopleInRoom, ok := gameServer.gameRoom.Map[roomName]
-	if ok {
-		gameServer.gameRoom.Map[roomName] += 1
-		if peopleInRoom >= gameServer.RoomMaxNumber {
-			so.Emit("info", "this room has fulled")
-			so.BroadcastTo(roomName, "info", fmt.Sprintf("%s(%s) has quit the room", so.Id(), so.Request().RemoteAddr))
-			gameServer.Log.Informational("%s(%s) left the room:%s", so.Id(), so.Request().RemoteAddr, roomName)
-			so.Leave(roomName)
-		} else {
-			gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom.Map[roomName], roomName)
-			gameServer.BroadcastTo(roomName, "ready", "showready")
-		}
+
+	gameServer.initUserInfo(roomName, so)
+	peopleInRoom := gameServer.gameRoom.Map[roomName]
+	if len(peopleInRoom) > gameServer.RoomMaxNumber {
+		so.Emit("info", "this room has fulled")
+		so.BroadcastTo(roomName, "info", fmt.Sprintf("%s(%s) has quit the room", so.Id(), so.Request().RemoteAddr))
+		gameServer.Log.Informational("%s(%s) left the room:%s", so.Id(), so.Request().RemoteAddr, roomName)
+		so.Leave(roomName)
+		return
+	}
+	gameServer.Log.Informational("%d people in room:%s", len(gameServer.gameRoom.Map[roomName]), roomName)
+}
+
+func (gameServer *GameServer) initUserInfo(roomName string, so socketio.Socket) {
+
+	input := context.NewInput(so.Request())
+	nickName := input.Query("nick")
+	headImage := input.Query("head")
+	userInfo := &UserInfo{
+		Nick:     nickName,
+		UserHead: headImage,
+	}
+
+	_, ok := gameServer.gameRoom.Map[roomName]
+	if !ok {
+		gameServer.gameRoom.Map[roomName] = make(map[string]*UserInfo)
+		gameServer.gameRoom.Map[roomName][so.Id()] = userInfo
 	} else {
-		gameServer.gameRoom.Map[roomName] = 1
-		gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom.Map[roomName], roomName)
+		gameServer.gameRoom.Map[roomName][so.Id()] = userInfo
+		userInfo := gameServer.gameRoom.Map[roomName]
+		userInfoJson, _ := json.Marshal(userInfo)
+		gameServer.BroadcastTo(roomName, "user", string(userInfoJson))
 	}
 }
 
@@ -71,19 +94,21 @@ func (gameServer *GameServer) handleEvent() func(socketio.Socket) {
 	return func(so socketio.Socket) {
 		input := context.NewInput(so.Request())
 		roomName := input.Query("chat")
+
 		gameServer.Log.Informational("%s(%s) joined the room:%s", so.Id(), so.Request().RemoteAddr, roomName)
+
 		so.Join(roomName)
-		so.BroadcastTo(roomName, "joined", "your friend "+so.Id()+"joined the room.")
 
 		gameServer.checkPeopleNumberInRoom(roomName, so)
+
+		so.BroadcastTo(roomName, "joined", "your friend "+so.Id()+"joined the room.")
 
 		so.On("disconnection", func() {
 			gameServer.gameRoom.Lock()
 			defer gameServer.gameRoom.Unlock()
-			gameServer.gameRoom.Map[roomName] -= 1
 			gameServer.Log.Informational("%s(%s) disconnected", so.Id(), so.Request().RemoteAddr)
-			gameServer.Log.Informational("%d people in room:%s", gameServer.gameRoom.Map[roomName], roomName)
-			if gameServer.gameRoom.Map[roomName] == 0 {
+			gameServer.Log.Informational("%d people in room:%s", len(gameServer.gameRoom.Map[roomName]), roomName)
+			if len(gameServer.gameRoom.Map[roomName]) == 0 {
 				gameServer.Log.Informational("detoried the room %s", roomName)
 				delete(gameServer.gameRoom.Map, roomName)
 			}
