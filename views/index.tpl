@@ -15,6 +15,7 @@
     </style>
   </head>
   <body>
+    <p>输入0,准备.输入1,A选择完毕.输入2,B选择错误.输入3,B选择正确,20秒后游戏结束收到gameover事件</p>
     <p>join room address:{{.webHost}}/?chat={{.Room}}</p>
     <ul id="messages"></ul>
     <form action="">
@@ -34,8 +35,8 @@
     }
     </script>
     <script>
-      var socket = io("{{.gameHost}}/?chat={{.Room}}");
-      var counter =0
+      var socket = io("{{.gameHost}}/?chat={{.Room}}&nick=MaxNick&head=MaxHead");
+      var counter = 4 //题号
 
       $('form').submit(function(){
         input = $('#m').val()
@@ -46,16 +47,17 @@
 
 
         if(input == "1"){
-            console.log("client:A selected,pending B")
-            socket.emit('asend');
+            console.log("client:第"+counter+"题,A选择完毕，等待 B")
+            console.log("广播到全局参数:"+counter+";")
+            socket.emit('asend',counter+";");
         }
         if(input =="2"){
-            console.log("client:B selected,false,pending A")
+            console.log("client:B 选择了第"+counter+"题的错误答案的发送bsend事件,等待A选择")
             socket.emit('bsend',counter+",0");
             counter++
         }
         if(input =="3"){
-            console.log("client:B selected,true,pending A")
+            console.log("client:B 选择了第"+counter+"题的正确答案的,发送bsend事件,等待A选择")
             socket.emit('bsend',counter+",1");
             counter++
         }
@@ -73,8 +75,18 @@
       });
 
 
+      socket.on('pendb', function(msg){
+        console.log("收到服务器pendb事件参数"+msg+"(A选择了第"+msg+"题)")
+        console.log("等待B选择")
+      });
+
       socket.on('penda', function(msg){
-        console.log("pending a")
+        console.log("收到服务器penda事件参数选择结果:"+msg)
+        console.log("等待a选择")
+      });
+
+      socket.on('user', function(msg){
+        console.log("接收到对方玩家信息:"+msg)
       });
 
       socket.on('gameover', function(msg){

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"pair/game"
 	_ "pair/routers"
 	"strings"
@@ -9,7 +10,7 @@ import (
 	"time"
 
 	"github.com/astaxie/beego"
-	"github.com/googollee/go-socket.io"
+	socketio "github.com/googollee/go-socket.io"
 )
 
 func main() {
@@ -48,13 +49,23 @@ func main() {
 					if len(peopleSlice) == 2 {
 						if peopleSlice[0] != so.Id() {
 							peopleSlice[1] = so.Id()
-
 							delete(confirm.Map, roomName)
 							gameServer.Log.Informational("%s(%s) Game(%s) started.", so.Id(), so.Request().RemoteAddr, roomName)
 							gameServer.BroadcastTo(roomName, "gamestart")
 							go func() {
-
-								<-time.Tick(20 * time.Second)
+								go func() {
+									var countSec int = 0
+									for {
+										gameServer.BroadcastTo(roomName, "info", "game started "+fmt.Sprintf("%d", countSec)+" Second")
+										countSec += 5
+										<-time.Tick(5 * time.Second)
+										if countSec == 60 {
+											gameServer.BroadcastTo(roomName, "info", "game started "+fmt.Sprintf("%d", countSec)+" Second")
+											break
+										}
+									}
+								}()
+								<-time.Tick(60 * time.Second)
 								gameLogTrue.Lock()
 								defer gameLogTrue.Unlock()
 								jsonByte, _ := json.Marshal(gameLogTrue.Map[roomName])
@@ -96,8 +107,7 @@ func main() {
 
 			return func(msg string) {
 				gameServer.Log.Informational("%s(%s) said %s", so.Id(), so.Request().RemoteAddr, msg)
-				gameServer.BroadcastTo(roomName, "info", "A selected ,pending B")
-				so.BroadcastTo(roomName, "asend")
+				so.BroadcastTo(roomName, "pendb", msg)
 			}
 		}
 
@@ -111,8 +121,7 @@ func main() {
 					gameLogTrue.Map[roomName] = append(gameLogTrue.Map[roomName], result[0])
 				}
 				gameServer.Log.Informational("b send result to a %s", msg)
-				gameServer.BroadcastTo(roomName, "info", "B selected ,pending A")
-				so.BroadcastTo(roomName, "penda")
+				gameServer.BroadcastTo(roomName, "penda", msg)
 			}
 		}
 		//gameOverFunc := func(so socketio.Socket, roomName string) func(msg string) {
